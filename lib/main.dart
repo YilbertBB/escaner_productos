@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'screen/history_view.dart';
 import 'screen/home_view.dart';
-import 'screen/register_product_view.dart';
 import 'screen/scanner_view.dart';
 import 'theme/app_theme.dart';
 
