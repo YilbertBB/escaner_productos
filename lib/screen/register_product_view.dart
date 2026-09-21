@@ -70,63 +70,112 @@ class _RegisterProductViewState extends State<RegisterProductView> {
   }
 
   // ────────────────────── GUARDAR ──────────────────────
-  Future<void> _guardarProducto() async {
-    final storage = StorageService();
-    final export = ExportService();
+Future<void> _guardarProducto() async {
+  // 👈 VALIDACIÓN: nombre obligatorio
+  final nombre = _nameController.text.trim();
+  if (nombre.isEmpty) {
+    _mostrarErrorValidacion('El nombre del producto es obligatorio');
+    return;
+  }
 
-    final producto = Producto(
-      codigo: widget.codigoEscaneado,
-      nombre: _nameController.text.trim(),
-      marca: _brandController.text.trim(),
-      ingredientes: _descController.text.trim(),
-      categoria: _selectedCategory,
-      precio: double.tryParse(_priceController.text) ?? 0.0,
-      sku: _skuController.text.trim(),
-      imagenes: _imagenes,
-    );
+  // 👈 VALIDACIÓN: precio válido (opcional pero útil)
+  final precioTexto = _priceController.text.trim();
+  double precio = 0.0;
+  if (precioTexto.isNotEmpty) {
+    final parsed = double.tryParse(precioTexto);
+    if (parsed == null || parsed < 0) {
+      _mostrarErrorValidacion('El precio debe ser un número válido');
+      return;
+    }
+    precio = parsed;
+  }
 
-    await storage.agregarProducto(producto);
+  final storage = StorageService();
+  final export = ExportService();
 
-    if (!mounted) return;
+  final producto = Producto(
+    codigo: widget.codigoEscaneado,
+    nombre: nombre,
+    marca: _brandController.text.trim(),
+    ingredientes: _descController.text.trim(),
+    categoria: _selectedCategory,
+    precio: precio,
+    sku: _skuController.text.trim(),
+    imagenes: _imagenes,
+  );
 
-    final exportar = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppRadius.xxl),
+  await storage.agregarProducto(producto);
+
+  if (!mounted) return;
+
+  final exportar = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.xxl),
+      ),
+      title: const Text('Producto guardado'),
+      content: const Text(
+        '¿Quieres exportar todos los productos a JSON ahora?',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Después'),
         ),
-        title: const Text('Producto guardado'),
-        content: const Text(
-          '¿Quieres exportar todos los productos a JSON ahora?',
+        ElevatedButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Exportar'),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Después'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Exportar'),
+      ],
+    ),
+  );
+
+  if (exportar == true) {
+    final ok = await export.exportarProductos();
+    if (mounted) {
+      _showSuccessToast(
+        ok ? 'JSON exportado correctamente' : 'No hay productos para exportar',
+      );
+    }
+  }
+
+  if (mounted) {
+    Navigator.pop(context);
+  }
+}
+
+// 👈 Nuevo método para mostrar errores de validación
+void _mostrarErrorValidacion(String mensaje) {
+  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      behavior: SnackBarBehavior.floating,
+      margin: const EdgeInsets.all(16),
+      backgroundColor: const Color(0xFF7F1D1D),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+      ),
+      duration: const Duration(seconds: 3),
+      content: Row(
+        children: [
+          const Icon(Icons.warning_amber_rounded,
+              color: Colors.white, size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              mensaje,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
         ],
       ),
-    );
-
-    if (exportar == true) {
-      final ok = await export.exportarProductos();
-      if (mounted) {
-        _showSuccessToast(
-          ok
-              ? 'JSON exportado correctamente'
-              : 'No hay productos para exportar',
-        );
-      }
-    }
-
-    if (mounted) {
-      Navigator.pop(context);
-    }
-  }
+    ),
+  );
+}
 
   // ────────────────────── FOTOS ──────────────────────
   Future<void> _tomarFoto() async {

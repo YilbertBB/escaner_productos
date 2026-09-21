@@ -614,40 +614,106 @@ class _ScannerViewState extends State<ScannerView>
   }
 
   // ────────────────────── LÓGICA DE ESCANEO ──────────────────────
-  Future<void> _onDetect(BarcodeCapture capture) async {
-    if (_procesando || _isLocked) return;
+Future<void> _onDetect(BarcodeCapture capture) async {
+  if (_procesando || _isLocked) return;
 
-    final barcode = capture.barcodes.firstOrNull;
-    final codigo = barcode?.rawValue;
-    if (codigo == null || codigo.isEmpty) return;
+  final barcode = capture.barcodes.firstOrNull;
+  final codigo = barcode?.rawValue;
+  if (codigo == null || codigo.isEmpty) return;
 
+  setState(() {
+    _isLocked = true;
+    _procesando = true;
+  });
+
+  // Buscar en cascada
+  final producto = await _lookupService.buscarProducto(codigo);
+
+  if (!mounted) return;
+
+  // 👈 Si no se encontró, mostramos error y desbloqueamos
+  if (producto == null || producto.nombre == 'Sin nombre') {
     setState(() {
-      _isLocked = true;
-      _procesando = true;
+      _isLocked = false;
+      _procesando = false;
     });
 
-    // 👈 Búsqueda en cascada (Food → Beauty → Products → UPCitemdb)
-    final producto = await _lookupService.buscarProducto(codigo);
-
-    if (!mounted) return;
-
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => RegisterProductView(
-          codigoEscaneado: codigo,
-          productoInicial: producto,
-        ),
-      ),
-    );
-
-    if (mounted) {
-      setState(() {
-        _isLocked = false;
-        _procesando = false;
-      });
-    }
+    _mostrarErrorNoEncontrado(codigo);
+    return;
   }
+
+  // Si se encontró, navegamos a RegisterProductView
+  await Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => RegisterProductView(
+        codigoEscaneado: codigo,
+        productoInicial: producto,
+      ),
+    ),
+  );
+
+  if (mounted) {
+    setState(() {
+      _isLocked = false;
+      _procesando = false;
+    });
+  }
+}
+
+// 👈 Nuevo método para mostrar el error
+void _mostrarErrorNoEncontrado(String codigo) {
+  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      behavior: SnackBarBehavior.floating,
+      margin: const EdgeInsets.fromLTRB(20, 0, 20, 120),
+      backgroundColor: const Color(0xFF7F1D1D), // rojo oscuro
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+      ),
+      duration: const Duration(seconds: 3),
+      content: Row(
+        children: [
+          const Icon(Icons.error_outline, color: Colors.white, size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Producto no encontrado',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Código: $codigo',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.white.withValues(alpha: 0.85),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Intenta con otro código o agrégalo manualmente.',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.white.withValues(alpha: 0.7),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
 
   Future<void> _toggleTorch() async {
     await _scannerController.toggleTorch();
