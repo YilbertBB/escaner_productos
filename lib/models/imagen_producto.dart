@@ -1,7 +1,7 @@
 class ImagenProducto {
-  final String ruta; // URL remota o ruta local
-  final bool esLocal; // true = archivo en el dispositivo, false = URL
-  final String rol; // 'frontal', 'reverso', 'etiqueta', 'extra'
+  final String ruta;      // URL remota, ruta local, o data:image/...;base64,...
+  final bool esLocal;
+  final String rol;
 
   ImagenProducto({
     required this.ruta,
@@ -18,8 +18,11 @@ class ImagenProducto {
   }
 
   Map<String, dynamic> toJson() => {
-    'ruta': ruta,
-    'es_local': esLocal,
-    'rol': rol,
-  };
+        'ruta': ruta,
+        'es_local': esLocal,
+        'rol': rol,
+      };
+
+  // 👈 Helper: ¿es una imagen Base64?
+  bool get esBase64 => ruta.startsWith('data:image');
 }

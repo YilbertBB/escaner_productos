@@ -1,7 +1,9 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'dart:io';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/imagen_producto.dart';
@@ -12,7 +14,6 @@ import '../theme/app_theme.dart';
 import '../widgets/shared_widgets.dart';
 
 class RegisterProductView extends StatefulWidget {
-  // 👈 Ahora recibe el código escaneado y el producto pre-cargado (puede ser null)
   final String codigoEscaneado;
   final Producto? productoInicial;
 
@@ -35,7 +36,6 @@ class _RegisterProductViewState extends State<RegisterProductView> {
 
   final ImagePicker _picker = ImagePicker();
 
-  // 👈 Lista de imágenes (remotas de Open Food Facts + locales del usuario)
   List<ImagenProducto> _imagenes = [];
 
   String _selectedCategory = 'otro';
@@ -44,7 +44,6 @@ class _RegisterProductViewState extends State<RegisterProductView> {
   void initState() {
     super.initState();
 
-    // 👈 Pre-rellenar con datos de Open Food Facts si existen
     final inicial = widget.productoInicial;
     if (inicial != null) {
       _nameController.text = inicial.nombre;
@@ -70,163 +69,197 @@ class _RegisterProductViewState extends State<RegisterProductView> {
   }
 
   // ────────────────────── GUARDAR ──────────────────────
-Future<void> _guardarProducto() async {
-  // 👈 VALIDACIÓN: nombre obligatorio
-  final nombre = _nameController.text.trim();
-  if (nombre.isEmpty) {
-    _mostrarErrorValidacion('El nombre del producto es obligatorio');
-    return;
-  }
-
-  // 👈 VALIDACIÓN: precio válido (opcional pero útil)
-  final precioTexto = _priceController.text.trim();
-  double precio = 0.0;
-  if (precioTexto.isNotEmpty) {
-    final parsed = double.tryParse(precioTexto);
-    if (parsed == null || parsed < 0) {
-      _mostrarErrorValidacion('El precio debe ser un número válido');
+  Future<void> _guardarProducto() async {
+    // Validación: nombre obligatorio
+    final nombre = _nameController.text.trim();
+    if (nombre.isEmpty) {
+      _mostrarErrorValidacion('El nombre del producto es obligatorio');
       return;
     }
-    precio = parsed;
-  }
 
-  final storage = StorageService();
-  final export = ExportService();
-
-  final producto = Producto(
-    codigo: widget.codigoEscaneado,
-    nombre: nombre,
-    marca: _brandController.text.trim(),
-    ingredientes: _descController.text.trim(),
-    categoria: _selectedCategory,
-    precio: precio,
-    sku: _skuController.text.trim(),
-    imagenes: _imagenes,
-  );
-
-  await storage.agregarProducto(producto);
-
-  if (!mounted) return;
-
-  final exportar = await showDialog<bool>(
-    context: context,
-    builder: (context) => AlertDialog(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.xxl),
-      ),
-      title: const Text('Producto guardado'),
-      content: const Text(
-        '¿Quieres exportar todos los productos a JSON ahora?',
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text('Después'),
-        ),
-        ElevatedButton(
-          onPressed: () => Navigator.pop(context, true),
-          child: const Text('Exportar'),
-        ),
-      ],
-    ),
-  );
-
-  if (exportar == true) {
-    final ok = await export.exportarProductos();
-    if (mounted) {
-      _showSuccessToast(
-        ok ? 'JSON exportado correctamente' : 'No hay productos para exportar',
-      );
+    // Validación: precio válido (opcional)
+    final precioTexto = _priceController.text.trim();
+    double precio = 0.0;
+    if (precioTexto.isNotEmpty) {
+      final parsed = double.tryParse(precioTexto);
+      if (parsed == null || parsed < 0) {
+        _mostrarErrorValidacion('El precio debe ser un número válido');
+        return;
+      }
+      precio = parsed;
     }
-  }
 
-  if (mounted) {
-    Navigator.pop(context);
-  }
-}
+    final storage = StorageService();
+    final export = ExportService();
 
-// 👈 Nuevo método para mostrar errores de validación
-void _mostrarErrorValidacion(String mensaje) {
-  ScaffoldMessenger.of(context).hideCurrentSnackBar();
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      behavior: SnackBarBehavior.floating,
-      margin: const EdgeInsets.all(16),
-      backgroundColor: const Color(0xFF7F1D1D),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.lg),
-      ),
-      duration: const Duration(seconds: 3),
-      content: Row(
-        children: [
-          const Icon(Icons.warning_amber_rounded,
-              color: Colors.white, size: 22),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              mensaje,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+    final producto = Producto(
+      codigo: widget.codigoEscaneado,
+      nombre: nombre,
+      marca: _brandController.text.trim(),
+      ingredientes: _descController.text.trim(),
+      categoria: _selectedCategory,
+      precio: precio,
+      sku: _skuController.text.trim(),
+      imagenes: _imagenes,
+    );
+
+    await storage.agregarProducto(producto);
+
+    if (!mounted) return;
+
+    final exportar = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.xxl),
+        ),
+        title: const Text('Producto guardado'),
+        content: const Text(
+          '¿Quieres exportar todos los productos a JSON ahora?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Después'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Exportar'),
           ),
         ],
       ),
-    ),
-  );
-}
-
-  // ────────────────────── FOTOS ──────────────────────
-  Future<void> _tomarFoto() async {
-    final XFile? foto = await _picker.pickImage(
-      source: ImageSource.camera,
-      imageQuality: 80,
-      maxWidth: 1200,
     );
-    if (foto != null) {
-      await _agregarImagen(foto.path);
-    }
-  }
 
-  Future<void> _elegirDeGaleria() async {
-    final XFile? foto = await _picker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 80,
-      maxWidth: 1200,
-    );
-    if (foto != null) {
-      await _agregarImagen(foto.path);
-    }
-  }
-
-  Future<void> _agregarImagen(String rutaOriginal) async {
-    // En web no podemos copiar archivos, guardamos la ruta tal cual
-    String rutaFinal = rutaOriginal;
-
-    if (!kIsWeb) {
-      // 👈 Copiamos la imagen a una carpeta permanente de la app
-      try {
-        final dir = await getApplicationDocumentsDirectory();
-        final nombre = 'producto_${DateTime.now().millisecondsSinceEpoch}.jpg';
-        final nuevo = File('${dir.path}/$nombre');
-        await File(rutaOriginal).copy(nuevo.path);
-        rutaFinal = nuevo.path;
-      } catch (e) {
-        print('Error al copiar imagen: $e');
+    if (exportar == true) {
+      final ok = await export.exportarProductos();
+      if (mounted) {
+        _showSuccessToast(
+          ok ? 'JSON exportado correctamente' : 'No hay productos para exportar',
+        );
       }
     }
 
-    setState(() {
-      _imagenes.add(
-        ImagenProducto(
-          ruta: rutaFinal,
-          esLocal: true,
-          rol: _imagenes.isEmpty ? 'frontal' : 'extra',
-        ),
-      );
-    });
+    if (mounted) {
+      Navigator.pop(context);
+    }
   }
+
+  void _mostrarErrorValidacion(String mensaje) {
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(16),
+        backgroundColor: const Color(0xFF7F1D1D),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+        ),
+        duration: const Duration(seconds: 3),
+        content: Row(
+          children: [
+            const Icon(
+              Icons.warning_amber_rounded,
+              color: Colors.white,
+              size: 22,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                mensaje,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ────────────────────── FOTOS ──────────────────────
+Future<void> _tomarFoto() async {
+  print('📷 BOTÓN TOMAR FOTO PRESIONADO');
+  final XFile? foto = await _picker.pickImage(
+    source: ImageSource.camera,
+    imageQuality: 80,
+    maxWidth: 1200,
+  );
+  print('📷 foto recibida: ${foto?.path}');
+  if (foto != null) {
+    await _agregarImagen(foto);
+  } else {
+    print('📷 usuario canceló');
+  }
+}
+
+Future<void> _elegirDeGaleria() async {
+  print('🖼️ BOTÓN GALERÍA PRESIONADO');
+  final XFile? foto = await _picker.pickImage(
+    source: ImageSource.gallery,
+    imageQuality: 80,
+    maxWidth: 1200,
+  );
+  print('🖼️ foto recibida: ${foto?.path}');
+  if (foto != null) {
+    await _agregarImagen(foto);
+  } else {
+    print('🖼️ usuario canceló');
+  }
+}
+
+  // 👈 Ahora recibe XFile (no String), funciona en web y móvil
+  Future<void> _agregarImagen(XFile foto) async {
+  String rutaFinal;
+  
+  print('🖼️ AGREGAR IMAGEN:');
+  print('   - kIsWeb: $kIsWeb');
+  print('   - foto.path: ${foto.path}');
+
+  if (kIsWeb) {
+    try {
+      final bytes = await foto.readAsBytes();
+      print('   - bytes leídos: ${bytes.length}');
+      final base64String = base64Encode(bytes);
+      rutaFinal = 'data:image/jpeg;base64,$base64String';
+      print('   - base64 length: ${rutaFinal.length}');
+    } catch (e) {
+      print('   ❌ ERROR Base64: $e');
+      return;
+    }
+  } else {
+    rutaFinal = foto.path;
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final nombre = 'producto_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final nuevo = File('${dir.path}/$nombre');
+      await File(foto.path).copy(nuevo.path);
+      rutaFinal = nuevo.path;
+      print('   - copiado a: $rutaFinal');
+      print('   - existe: ${File(rutaFinal).existsSync()}');
+    } catch (e) {
+      print('   ❌ ERROR copia: $e');
+    }
+  }
+
+  print('   - rutaFinal: $rutaFinal');
+  print('   - esBase64: ${rutaFinal.startsWith('data:image')}');
+
+  if (!mounted) return;
+
+  setState(() {
+    _imagenes.add(
+      ImagenProducto(
+        ruta: rutaFinal,
+        esLocal: true,
+        rol: _imagenes.isEmpty ? 'frontal' : 'extra',
+      ),
+    );
+  });
+  
+  print('   ✅ Total imágenes: ${_imagenes.length}');
+}
 
   void _eliminarImagen(int index) {
     setState(() => _imagenes.removeAt(index));
@@ -437,7 +470,7 @@ void _mostrarErrorValidacion(String mensaje) {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        widget.codigoEscaneado, // 👈 código real
+                        widget.codigoEscaneado,
                         style: AppMonoText.code.copyWith(
                           fontWeight: FontWeight.w700,
                           letterSpacing: 1.2,
@@ -520,7 +553,7 @@ void _mostrarErrorValidacion(String mensaje) {
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemCount: _imagenes.length,
-                separatorBuilder: (_, _) => const SizedBox(width: 8),
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
                 itemBuilder: (context, i) => _buildImagenThumb(_imagenes[i], i),
               ),
             ),
@@ -532,7 +565,7 @@ void _mostrarErrorValidacion(String mensaje) {
                   icon: Icons.photo_camera,
                   label: 'Tomar Foto',
                   filled: true,
-                  onPressed: _tomarFoto, // 👈 conectado
+                  onPressed: _tomarFoto,
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
@@ -540,7 +573,7 @@ void _mostrarErrorValidacion(String mensaje) {
                 child: _buildSecondaryButton(
                   icon: Icons.add_photo_alternate,
                   label: 'Galería',
-                  onPressed: _elegirDeGaleria, // 👈 conectado
+                  onPressed: _elegirDeGaleria,
                 ),
               ),
             ],
@@ -593,19 +626,7 @@ void _mostrarErrorValidacion(String mensaje) {
           child: SizedBox(
             width: 100,
             height: 100,
-            child: img.esLocal && !kIsWeb
-                ? Image.file(File(img.ruta), fit: BoxFit.cover)
-                : Image.network(
-                    img.ruta,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => Container(
-                      color: AppColors.surfaceContainer,
-                      child: const Icon(
-                        Icons.broken_image,
-                        color: AppColors.outline,
-                      ),
-                    ),
-                  ),
+            child: _buildThumbContent(img),
           ),
         ),
         Positioned(
@@ -645,11 +666,59 @@ void _mostrarErrorValidacion(String mensaje) {
     );
   }
 
+ Widget _buildThumbContent(ImagenProducto img) {
+  print('🎨 RENDER IMAGEN:');
+  print('   - ruta: ${img.ruta}');
+  print('   - esLocal: ${img.esLocal}');
+  print('   - esBase64: ${img.esBase64}');
+  print('   - kIsWeb: $kIsWeb');
+
+  if (img.esBase64) {
+    print('   → usando Image.memory');
+    final base64String = img.ruta.split(',').last;
+    return Image.memory(
+      base64Decode(base64String),
+      fit: BoxFit.cover,
+      errorBuilder: (_, error, __) {
+        print('   ❌ Error Image.memory: $error');
+        return const Icon(Icons.broken_image, color: AppColors.outline);
+      },
+    );
+  }
+
+  if (img.esLocal && !kIsWeb) {
+    print('   → usando Image.file');
+    final file = File(img.ruta);
+    if (!file.existsSync()) {
+      print('   ❌ Archivo no existe');
+      return const Icon(Icons.broken_image, color: AppColors.outline);
+    }
+    return Image.file(
+      file,
+      fit: BoxFit.cover,
+      errorBuilder: (_, error, __) {
+        print('   ❌ Error Image.file: $error');
+        return const Icon(Icons.broken_image, color: AppColors.outline);
+      },
+    );
+  }
+
+  print('   → usando Image.network');
+  return Image.network(
+    img.ruta,
+    fit: BoxFit.cover,
+    errorBuilder: (_, error, __) {
+      print('   ❌ Error Image.network: $error');
+      return const Icon(Icons.broken_image, color: AppColors.outline);
+    },
+  );
+}
+
   Widget _buildSecondaryButton({
     required IconData icon,
     required String label,
     bool filled = false,
-    required VoidCallback onPressed, // 👈 nuevo parámetro
+    required VoidCallback onPressed,
   }) {
     return ElevatedButton.icon(
       onPressed: onPressed,

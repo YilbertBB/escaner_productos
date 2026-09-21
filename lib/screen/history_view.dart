@@ -1,29 +1,13 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
+import '../models/imagen_producto.dart';
+import '../models/producto.dart';
+import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/shared_widgets.dart';
-
-class HistoryItem {
-  final String id;
-  final String title;
-  final String brand;
-  final String code;
-  final String category;
-  final String timeAgo;
-  final String? imageUrl;
-  final String codeType;
-
-  HistoryItem({
-    required this.id,
-    required this.title,
-    required this.brand,
-    required this.code,
-    required this.category,
-    required this.timeAgo,
-    this.imageUrl,
-    this.codeType = 'EAN',
-  });
-}
 
 class HistoryView extends StatefulWidget {
   const HistoryView({super.key});
@@ -33,57 +17,28 @@ class HistoryView extends StatefulWidget {
 }
 
 class _HistoryViewState extends State<HistoryView> {
+  final StorageService _storage = StorageService();
   final _searchController = TextEditingController();
+
+  List<Producto> _productos = [];
+  bool _cargando = true;
   String _selectedCategory = 'all';
-  // final bool _batchMode = false;
-
-  final List<HistoryItem> _todayItems = [
-    HistoryItem(
-      id: '1',
-      title: 'Granola Artesanal Crunch Almendra 500g',
-      brand: 'NaturAlmendras S.L.',
-      code: '8410293048123',
-      category: 'alimentos',
-      timeAgo: 'Hace 12 min',
-    ),
-    HistoryItem(
-      id: '2',
-      title: 'Auriculares Inalámbricos Pro ANC',
-      brand: 'SonicAudio Pro',
-      code: '019425203810',
-      category: 'electronica',
-      timeAgo: 'Hace 2 horas',
-      codeType: 'UPC',
-    ),
-  ];
-
-  final List<HistoryItem> _yesterdayItems = [
-    HistoryItem(
-      id: '3',
-      title: 'Café Molido Arábica de Colombia 250g',
-      brand: 'Andina Roasters',
-      code: '7702004001234',
-      category: 'bebidas',
-      timeAgo: 'Ayer, 18:20',
-    ),
-    HistoryItem(
-      id: '4',
-      title: 'Crema Hidratante Facial Ácido Hialurónico',
-      brand: 'Lumière Skincare',
-      code: 'https://lumiere.care/p/ha-hydra',
-      category: 'cuidado',
-      timeAgo: 'Ayer, 11:15',
-      codeType: 'QR',
-    ),
-  ];
 
   final Map<String, String> _categories = {
     'all': 'Todos',
     'alimentos': 'Alimentos',
     'electronica': 'Electrónica',
-    'bebidas': 'Bebidas',
-    'cuidado': 'Cuidado Personal',
+    'cosmetica': 'Cosmética',
+    'limpieza': 'Limpieza',
+    'farmacia': 'Farmacia',
+    'otro': 'Otros',
   };
+
+  @override
+  void initState() {
+    super.initState();
+    _cargarProductos();
+  }
 
   @override
   void dispose() {
@@ -91,53 +46,111 @@ class _HistoryViewState extends State<HistoryView> {
     super.dispose();
   }
 
-  List<HistoryItem> _filteredItems(List<HistoryItem> items) {
-    return items.where((item) {
-      final matchesSearch =
-          _searchController.text.isEmpty ||
-          item.title.toLowerCase().contains(
-            _searchController.text.toLowerCase(),
-          ) ||
-          item.code.contains(_searchController.text);
+  Future<void> _cargarProductos() async {
+    setState(() => _cargando = true);
+    final productos = await _storage.obtenerProductos();
+    if (!mounted) return;
+    setState(() {
+      _productos = productos;
+      _cargando = false;
+    });
+  }
+
+  // ────────────────────── FILTROS ──────────────────────
+  List<Producto> get _filteredProducts {
+    final query = _searchController.text.toLowerCase();
+    return _productos.where((p) {
+      final matchesSearch = query.isEmpty ||
+          p.nombre.toLowerCase().contains(query) ||
+          p.marca.toLowerCase().contains(query) ||
+          p.codigo.contains(query);
       final matchesCategory =
-          _selectedCategory == 'all' || item.category == _selectedCategory;
+          _selectedCategory == 'all' || p.categoria == _selectedCategory;
       return matchesSearch && matchesCategory;
     }).toList();
   }
 
+  // Agrupa por fecha
+  Map<String, List<Producto>> get _agrupados {
+    final hoy = <Producto>[];
+    final ayer = <Producto>[];
+    final estaSemana = <Producto>[];
+    final masAntiguo = <Producto>[];
+
+    final ahora = DateTime.now();
+    final inicioHoy = DateTime(ahora.year, ahora.month, ahora.day);
+    final inicioAyer = inicioHoy.subtract(const Duration(days: 1));
+    final inicioSemana = inicioHoy.subtract(const Duration(days: 7));
+
+    for (final p in _filteredProducts) {
+      final fecha = p.fechaEscaneo;
+      if (fecha.isAfter(inicioHoy)) {
+        hoy.add(p);
+      } else if (fecha.isAfter(inicioAyer)) {
+        ayer.add(p);
+      } else if (fecha.isAfter(inicioSemana)) {
+        estaSemana.add(p);
+      } else {
+        masAntiguo.add(p);
+      }
+    }
+
+    return {
+      'Hoy': hoy,
+      'Ayer': ayer,
+      'Esta semana': estaSemana,
+      'Más antiguo': masAntiguo,
+    };
+  }
+
+  // ────────────────────── BUILD ──────────────────────
   @override
   Widget build(BuildContext context) {
+    final grupos = _agrupados;
+
     return Scaffold(
       backgroundColor: AppColors.surface,
       body: Column(
         children: [
           _buildAppBar(),
           Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.gutter,
-                0,
-                AppSpacing.gutter,
-                100,
-              ),
-              children: [
-                _buildHudOverview(),
-                const SizedBox(height: AppSpacing.md),
-                _buildSearchAndTools(),
-                const SizedBox(height: AppSpacing.md),
-                _buildCategoryChips(),
-                const SizedBox(height: AppSpacing.lg),
-                _buildTimeBlock('Hoy', _filteredItems(_todayItems)),
-                const SizedBox(height: AppSpacing.lg),
-                _buildTimeBlock('Ayer', _filteredItems(_yesterdayItems)),
-              ],
-            ),
+            child: _cargando
+                ? const Center(child: CircularProgressIndicator())
+                : RefreshIndicator(
+                    onRefresh: _cargarProductos,
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.gutter,
+                        0,
+                        AppSpacing.gutter,
+                        100,
+                      ),
+                      children: [
+                        _buildHudOverview(),
+                        const SizedBox(height: AppSpacing.md),
+                        _buildSearchAndTools(),
+                        const SizedBox(height: AppSpacing.md),
+                        _buildCategoryChips(),
+                        const SizedBox(height: AppSpacing.lg),
+                        if (_productos.isEmpty)
+                          _buildEmptyState()
+                        else ...[
+                          for (final entry in grupos.entries)
+                            if (entry.value.isNotEmpty) ...[
+                              _buildTimeBlock(entry.key, entry.value),
+                              const SizedBox(height: AppSpacing.lg),
+                            ],
+                        ],
+                      ],
+                    ),
+                  ),
           ),
         ],
       ),
     );
   }
 
+  // ────────────────────── APP BAR ──────────────────────
   Widget _buildAppBar() {
     return SafeArea(
       bottom: false,
@@ -165,7 +178,7 @@ class _HistoryViewState extends State<HistoryView> {
             ),
             const SizedBox(width: 10),
             Text(
-              'ScanLens',
+              'Historial',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
@@ -190,7 +203,7 @@ class _HistoryViewState extends State<HistoryView> {
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    'Online',
+                    '${_productos.length}',
                     style: AppMonoText.code.copyWith(
                       color: AppColors.onSurfaceVariant,
                       fontSize: 12,
@@ -205,7 +218,11 @@ class _HistoryViewState extends State<HistoryView> {
     );
   }
 
+  // ────────────────────── HUD OVERVIEW ──────────────────────
   Widget _buildHudOverview() {
+    final categorias = _productos.map((p) => p.categoria).toSet().length;
+    final total = _productos.fold<double>(0, (s, p) => s + p.precio);
+
     return Container(
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
@@ -253,11 +270,15 @@ class _HistoryViewState extends State<HistoryView> {
             ),
             child: Row(
               children: [
-                _buildStat('28', 'Escaneos', AppColors.primary),
+                _buildStat('${_productos.length}', 'Escaneos', AppColors.primary),
                 _buildDivider(),
-                _buildStat('4', 'Categorías', AppColors.secondary),
+                _buildStat('$categorias', 'Categorías', AppColors.secondary),
                 _buildDivider(),
-                _buildStat('14', 'Favoritos', AppColors.tertiary),
+                _buildStat(
+                  '\$${total.toStringAsFixed(0)}',
+                  'Valor',
+                  AppColors.tertiary,
+                ),
               ],
             ),
           ),
@@ -295,6 +316,7 @@ class _HistoryViewState extends State<HistoryView> {
     );
   }
 
+  // ────────────────────── BÚSQUEDA Y HERRAMIENTAS ──────────────────────
   Widget _buildSearchAndTools() {
     return Column(
       children: [
@@ -344,35 +366,14 @@ class _HistoryViewState extends State<HistoryView> {
                 ),
               ),
             ),
-            const SizedBox(width: AppSpacing.sm),
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: AppColors.surfaceContainer,
-                borderRadius: BorderRadius.circular(AppRadius.lg),
-              ),
-              child: const Icon(Icons.tune, color: AppColors.primary),
-            ),
           ],
         ),
         const SizedBox(height: AppSpacing.sm),
         Row(
           children: [
-            _buildToolChip(
-              icon: Icons.file_download,
-              label: 'Exportar CSV',
-              filled: true,
-            ),
-            const SizedBox(width: 8),
-            _buildToolChip(
-              icon: Icons.checklist,
-              label: 'Selección',
-              filled: false,
-            ),
             const Spacer(),
             GestureDetector(
-              onTap: () {},
+              onTap: _confirmarLimpiar,
               child: Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 10,
@@ -408,49 +409,62 @@ class _HistoryViewState extends State<HistoryView> {
     );
   }
 
-  Widget _buildToolChip({
-    required IconData icon,
-    required String label,
-    required bool filled,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: filled ? AppColors.primary : AppColors.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(AppRadius.md),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            icon,
-            size: 16,
-            color: filled ? AppColors.onPrimary : AppColors.onSurface,
+  Future<void> _confirmarLimpiar() async {
+    if (_productos.isEmpty) return;
+
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.xxl),
+        ),
+        title: const Text('¿Limpiar historial?'),
+        content: Text(
+          'Se eliminarán ${_productos.length} productos. Esta acción no se puede deshacer.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
           ),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: filled ? AppColors.onPrimary : AppColors.onSurface,
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
             ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar'),
           ),
         ],
       ),
     );
+
+    if (confirmar == true) {
+      await _storage.limpiar();
+      await _cargarProductos();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Historial eliminado')),
+        );
+      }
+    }
   }
 
+  // ────────────────────── CHIPS ──────────────────────
   Widget _buildCategoryChips() {
     return SizedBox(
       height: 36,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: _categories.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
           final key = _categories.keys.elementAt(index);
           final label = _categories[key]!;
           final selected = _selectedCategory == key;
+          final count = key == 'all'
+              ? _productos.length
+              : _productos.where((p) => p.categoria == key).length;
           return GestureDetector(
             onTap: () => setState(() => _selectedCategory = key),
             child: AnimatedContainer(
@@ -472,7 +486,7 @@ class _HistoryViewState extends State<HistoryView> {
                     : null,
               ),
               child: Text(
-                key == 'all' ? '$label (28)' : label,
+                key == 'all' ? '$label ($count)' : label,
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
@@ -488,9 +502,8 @@ class _HistoryViewState extends State<HistoryView> {
     );
   }
 
-  Widget _buildTimeBlock(String label, List<HistoryItem> items) {
-    if (items.isEmpty) return const SizedBox.shrink();
-
+  // ────────────────────── BLOQUES DE TIEMPO ──────────────────────
+  Widget _buildTimeBlock(String label, List<Producto> items) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -518,22 +531,23 @@ class _HistoryViewState extends State<HistoryView> {
                 ),
               ),
               const Spacer(),
-              HudBadge(text: '${items.length} Escaneos'),
+              HudBadge(text: '${items.length}'),
             ],
           ),
         ),
         const SizedBox(height: AppSpacing.sm),
         ...items.map(
-          (item) => Padding(
+          (p) => Padding(
             padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-            child: _buildHistoryCard(item),
+            child: _buildHistoryCard(p),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildHistoryCard(HistoryItem item) {
+  // ────────────────────── TARJETA ──────────────────────
+  Widget _buildHistoryCard(Producto p) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -561,11 +575,14 @@ class _HistoryViewState extends State<HistoryView> {
               color: AppColors.surfaceContainer,
               borderRadius: BorderRadius.circular(AppRadius.md),
             ),
-            child: const Icon(
-              Icons.inventory_2,
-              color: AppColors.outline,
-              size: 28,
-            ),
+            clipBehavior: Clip.antiAlias,
+            child: p.tieneImagenes
+                ? _buildImagen(p.imagenPrincipal!)
+                : const Icon(
+                    Icons.inventory_2,
+                    color: AppColors.outline,
+                    size: 28,
+                  ),
           ),
           const SizedBox(width: 12),
           // Info
@@ -577,7 +594,7 @@ class _HistoryViewState extends State<HistoryView> {
                   children: [
                     Expanded(
                       child: Text(
-                        item.brand,
+                        p.marca.isNotEmpty ? p.marca : 'Sin marca',
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
@@ -585,15 +602,18 @@ class _HistoryViewState extends State<HistoryView> {
                         ),
                       ),
                     ),
-                    const Icon(
-                      Icons.more_vert,
-                      color: AppColors.onSurfaceVariant,
-                      size: 18,
+                    GestureDetector(
+                      onTap: () => _eliminarProducto(p),
+                      child: const Icon(
+                        Icons.more_vert,
+                        color: AppColors.onSurfaceVariant,
+                        size: 18,
+                      ),
                     ),
                   ],
                 ),
                 Text(
-                  item.title,
+                  p.nombre,
                   style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
@@ -617,7 +637,7 @@ class _HistoryViewState extends State<HistoryView> {
                         borderRadius: BorderRadius.circular(AppRadius.full),
                       ),
                       child: Text(
-                        _categories[item.category] ?? item.category,
+                        _categories[p.categoria] ?? p.categoria,
                         style: AppMonoText.badge.copyWith(
                           color: AppColors.onSecondaryContainer,
                         ),
@@ -626,7 +646,7 @@ class _HistoryViewState extends State<HistoryView> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        item.code,
+                        p.codigo,
                         style: AppMonoText.code.copyWith(
                           color: AppColors.onSurfaceVariant,
                           fontSize: 12,
@@ -646,7 +666,7 @@ class _HistoryViewState extends State<HistoryView> {
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      item.timeAgo,
+                      _timeAgo(p.fechaEscaneo),
                       style: TextStyle(
                         fontSize: 12,
                         color: AppColors.onSurfaceVariant,
@@ -655,7 +675,7 @@ class _HistoryViewState extends State<HistoryView> {
                     const Spacer(),
                     GestureDetector(
                       onTap: () {
-                        Clipboard.setData(ClipboardData(text: item.code));
+                        Clipboard.setData(ClipboardData(text: p.codigo));
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             behavior: SnackBarBehavior.floating,
@@ -689,6 +709,117 @@ class _HistoryViewState extends State<HistoryView> {
                   ],
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _timeAgo(DateTime fecha) {
+    final diff = DateTime.now().difference(fecha);
+    if (diff.inMinutes < 1) return 'Ahora';
+    if (diff.inMinutes < 60) return 'Hace ${diff.inMinutes} min';
+    if (diff.inHours < 24) return 'Hace ${diff.inHours} h';
+    if (diff.inDays == 1) return 'Ayer';
+    if (diff.inDays < 7) return 'Hace ${diff.inDays} días';
+    return '${fecha.day}/${fecha.month}/${fecha.year}';
+  }
+
+  Future<void> _eliminarProducto(Producto p) async {
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.xxl),
+        ),
+        title: const Text('¿Eliminar producto?'),
+        content: Text('Se eliminará "${p.nombre}" del historial.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar == true) {
+      await _storage.eliminarProducto(p.codigo);
+      await _cargarProductos();
+    }
+  }
+
+  Widget _buildImagen(ImagenProducto img) {
+    if (img.esBase64) {
+      return Image.memory(
+        base64Decode(img.ruta.split(',').last),
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => const Icon(
+          Icons.broken_image,
+          color: AppColors.outline,
+          size: 28,
+        ),
+      );
+    }
+    return Image.network(
+      img.ruta,
+      fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) => const Icon(
+        Icons.broken_image,
+        color: AppColors.outline,
+        size: 28,
+      ),
+    );
+  }
+
+  // ────────────────────── EMPTY ──────────────────────
+  Widget _buildEmptyState() {
+    return Container(
+      padding: const EdgeInsets.all(32),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(AppRadius.xxl),
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              color: AppColors.surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(AppRadius.xl),
+            ),
+            child: const Icon(
+              Icons.history,
+              color: AppColors.primary,
+              size: 32,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Sin historial todavía',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: AppColors.onSurface,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Los productos que escanees aparecerán aquí.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13,
+              color: AppColors.onSurfaceVariant,
             ),
           ),
         ],

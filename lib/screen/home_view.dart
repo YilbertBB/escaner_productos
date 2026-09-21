@@ -1,8 +1,13 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/imagen_producto.dart';
 import '../models/producto.dart';
+import '../services/export_service.dart';
 import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/shared_widgets.dart';
@@ -1337,10 +1342,25 @@ class _HomeViewState extends State<HomeView> {
     );
   }
 
-  Future<void> _exportarJson() async {
-    _showToast('Exportando JSON...');
-    // TODO: llamar a ExportService aquí
+Future<void> _exportarJson() async {
+  if (_productos.isEmpty) {
+    _showToast('No hay productos para exportar');
+    return;
   }
+
+  _showToast('Generando JSON...');
+
+  final export = ExportService();
+  final ok = await export.exportarProductos();
+
+  if (!mounted) return;
+
+  if (ok) {
+    _showToast('JSON exportado correctamente');
+  } else {
+    _showToast('Error al exportar');
+  }
+}
 
   void _showToast(String msg) {
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -1849,20 +1869,71 @@ class _ProductCard extends StatelessWidget {
     );
   }
 
-  Widget _buildImagen(ImagenProducto img) {
-    if (img.esLocal) {
-      return Image.network(
-        img.ruta,
-        fit: BoxFit.cover,
-        errorBuilder: (_, _, _) =>
-            const Icon(Icons.broken_image, color: AppColors.outline, size: 28),
-      );
-    }
-    return Image.network(
-      img.ruta,
+Widget _buildImagen(ImagenProducto img) {
+    print('🏠 HOME RENDER IMAGEN:');
+  print('   - ruta: ${img.ruta}');
+  print('   - esLocal: ${img.esLocal}');
+  print('   - esBase64: ${img.esBase64}');
+  print('   - kIsWeb: $kIsWeb');
+  // 👈 Base64 (web)
+  if (img.esBase64) {
+    final base64String = img.ruta.split(',').last;
+    return Image.memory(
+      base64Decode(base64String),
       fit: BoxFit.cover,
-      errorBuilder: (_, _, _) =>
-          const Icon(Icons.broken_image, color: AppColors.outline, size: 28),
+      errorBuilder: (_, __, ___) => Container(
+        color: AppColors.surfaceContainer,
+        child: const Icon(Icons.broken_image, color: AppColors.outline, size: 28),
+      ),
     );
   }
+
+  // 👈 Imagen local (móvil)
+  if (img.esLocal) {
+    if (kIsWeb) {
+      return Container(
+        color: AppColors.surfaceContainer,
+        child: const Icon(Icons.photo, color: AppColors.outline, size: 28),
+      );
+    }
+    final file = File(img.ruta);
+    if (!file.existsSync()) {
+      return Container(
+        color: AppColors.surfaceContainer,
+        child: const Icon(Icons.broken_image, color: AppColors.outline, size: 28),
+      );
+    }
+    return Image.file(
+      file,
+      fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) => Container(
+        color: AppColors.surfaceContainer,
+        child: const Icon(Icons.broken_image, color: AppColors.outline, size: 28),
+      ),
+    );
+  }
+
+  // 👈 Imagen remota
+  return Image.network(
+    img.ruta,
+    fit: BoxFit.cover,
+    loadingBuilder: (context, child, progress) {
+      if (progress == null) return child;
+      return Container(
+        color: AppColors.surfaceContainer,
+        child: const Center(
+          child: SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    },
+    errorBuilder: (_, __, ___) => Container(
+      color: AppColors.surfaceContainer,
+      child: const Icon(Icons.broken_image, color: AppColors.outline, size: 28),
+    ),
+  );
+}
 }
